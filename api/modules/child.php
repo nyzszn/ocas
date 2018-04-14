@@ -185,5 +185,41 @@ function registerChild()
 
 		}
 	}
+	function setChildPhoto($id = '')
+{
+	$conn = connect_db();
+	if (isset($_FILES['user_image'])) {
+
+		$uploadedFile = uploadPhoto('user_image', '../uploads');
+
+		$sql = $conn->prepare("UPDATE child SET user_image=? WHERE id=? ");
+		$sql->bind_param("si", $a, $b);
+		$a = $uploadedFile;
+		$b = $id;
+
+		if (!$sql->execute()) {
+			echo json_encode(array(
+				'status' => 'error',
+				'message' => mysqli_error($conn)
+			));
+			exit();
+		}
+		else {
+			echo json_encode(array(
+				'status' => 'success',
+				'message' => 'user_image Updated'
+			));
+			exit();
+		}
+	}
+	else {
+		echo json_encode(array(
+			'status' => 'error',
+			'message' => 'user_image is required'
+		));
+		exit();
+	}
+
+}
 
 ?>

@@ -1,5 +1,8 @@
 <?php
 header('Content-type:application/json');
+if (!isset($_SESSION)) {
+	session_start();
+}
 	function welcome(){
 		echo json_encode(array(
 			'status'=>'success',
@@ -119,4 +122,19 @@ header('Content-type:application/json');
 			exit();
 		}
 	}
+	function logout()
+{
+
+	$_SESSION = array();
+	session_destroy();
+
+	echo json_encode(array(
+		'status' => 'success',
+		'message' => 'Logged out successfully'
+	));
+	exit();
+
+
+
+}
 ?>

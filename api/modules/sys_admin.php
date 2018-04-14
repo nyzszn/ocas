@@ -7,8 +7,8 @@ function registerSysAdmin()
 	$conn = connect_db();
 
     //required fields
-	$username = isescape('name');
-    $password = isescape('username');
+	$username = isescape('username');
+    $password = isescape('password');
     $full_names = isescape('full_names');
 	$email = isescape('email');
 
@@ -145,7 +145,91 @@ function registerSysAdmin()
 			exit();
 
 		}
-    }
+	}
+	function adminLogin()
+	{
+		$conn = connect_db();
+
+		$username = isescape('username');
+		$password = isescape('password');
+
+		$loginSql = "SELECT * FROM system_admin WHERE username ='$username' LIMIT 1";
+		$result = $conn->query($loginSql);
+
+		if (!$result) {
+			echo json_encode(array(
+				'status' => 'error',
+				'message' => mysqli_error($conn)
+			));
+			exit();
+		}
+		else if ($result->num_rows === 1) {
+
+			$user = $result->fetch_array(MYSQLI_ASSOC);
+
+			if (password_verify($password, $user['password'])) {
+				$_SESSION['ocas-user_id'] = $user['id'];
+				$_SESSION['ocas-user_name'] = $user['username'];
+				$_SESSION['ocas-user_account'] ='admin';
+
+				echo json_encode(array(
+					'status' => 'success'
+
+				));
+				exit();
+
+			}
+			else {
+
+				echo json_encode(array(
+					'status' => 'failed',
+					'message' => 'Password combination does not match the Username: ' . $user['username']
+				));
+				exit();
+			}
+		}
+		else {
+
+			echo json_encode(array(
+				'status' => 'failed',
+				'message' => 'Username does not exist'
+			));
+			exit();
+		}
+
+}
+
+function saPassword($id){
+	$conn = connect_db();
+		
+        //required fields
+        $password = isescape('password');
+		   //rehashed password
+		   $reharshed = password_hash($password, PASSWORD_DEFAULT);
+    //sql query
+    $sql = $conn->prepare("UPDATE system_Admin SET password=? WHERE id=?");
+		$sql->bind_param("si", $a, $b);
+		$a = $reharshed;
+		$b = $id;
+	
+	
+		if (!$sql->execute()) {
+			echo json_encode(array(
+				'status' => 'error',
+				'message' => mysqli_error($conn)
+			));
+			exit();
+		}
+		else {
+			echo json_encode(array(
+				'status' => 'success',
+				'message' => 'System Admin\'s password has been updated'
+			));
+			exit();
+		}
+}
+
+
     
 
 
