@@ -74,6 +74,41 @@ function adopt()
         }
     }
 
+		//get all my adoptions
+function getAllMyAdoptions()
+    {
+        $conn = connect_db();
+        $sql = "SELECT * FROM adoption";
+        $result = mysqli_query($conn, $sql);
+        if (!$result) {
+    
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => mysqli_error($conn)
+            ));
+            exit();
+        }
+        else {
+    
+            if ($result->num_rows > 0) {
+    
+                echo json_encode(array(
+                    'status' => 'success',
+                    'data' => $result->fetch_all(MYSQLI_ASSOC)
+                ));
+                exit();
+            }
+            else if ($result->num_rows <= 0) {
+    
+                echo json_encode(array(
+                    'status' => 'failed',
+                    'message' => 'There are no adoptions available'
+                ));
+                exit();
+            }
+        }
+    }
+
     //get dhild by id
     function getAdoptionById($id = '')
 {
