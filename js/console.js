@@ -21,6 +21,46 @@ function consoleApp() {
             var id = $(this).attr("data-id");
             thisApp.updateDW(id);
         });
+        //changePasswordDw
+        $('#changePasswordDw').submit(function (e) {
+            e.preventDefault();
+            var id = $('#updateDWForm').attr("data-id");
+            thisApp.changeDWPassword(id);
+        });
+        //changeDWImage
+        $('#changeImageDw').submit(function (e) {
+            e.preventDefault();
+            var id = $('#updateDWForm').attr("data-id");
+            // thisApp.changeDWImage(id);
+            var formSettings = {
+                "type": "POST",
+                "headers": {
+                    "cache-control": "no-cache",
+                    "mimeType": "multipart/form-data"
+                },
+                processData: false, // tell jQuery not to process the data
+                contentType: false, // tell jQuery not to set contentType
+                "data": new FormData(this),
+                "url": "api/department_worker/photo/" + id,
+            };
+
+            $.ajax(formSettings).success(function (response) {
+                if (response.status == 'failed' || response.status == 'error') {
+                    console.log(JSON.stringify(response));
+                    notify("Failed to save data, please try again :" + JSON.stringify(response), "warning");
+                } else if (response.status == 'success') {
+                    console.log(JSON.stringify(response));
+                    notify("Data updated", "success");
+                    setTimeout(function () {
+                        window.location.reload();
+                    }, 2000);
+
+                } else {
+
+                }
+
+            });
+        });
         $('#profileForm').submit(function (e) {
             e.preventDefault();
             var id = $(this).attr("data-id");
@@ -135,6 +175,70 @@ function consoleApp() {
 
         });
     }
+    this.changeDWPassword = function (id) {
+        var password = $('#changePasswordDw .password').val();
+        var formdata = {
+            "password": password
+        };
+
+        console.log(JSON.stringify(formdata));
+        var formSettings = {
+            "type": "POST",
+            //"dataType": "json",
+            "data": formdata,
+            "url": "api/department_worker/password/" + id,
+        };
+
+        $.ajax(formSettings).success(function (response) {
+            if (response.status == 'failed' || response.status == 'error') {
+                console.log(JSON.stringify(response));
+                notify("Failed to save data, please try again :" + JSON.stringify(response), "warning");
+            } else if (response.status == 'success') {
+                console.log(JSON.stringify(response));
+                notify("Data updated", "success");
+                setTimeout(function () {
+                    window.location.reload();
+                }, 2000);
+
+            } else {
+
+            }
+
+        });
+    }
+    this.changeDWImage = function (id) {
+        // var image = $('#changeImageDw .image').val();
+
+        console.log(JSON.stringify(new FormData(this)));
+        var formSettings = {
+            "type": "POST",
+            "headers": {
+                "cache-control": "no-cache",
+                "mimeType": "multipart/form-data"
+            },
+            processData: false, // tell jQuery not to process the data
+            contentType: false, // tell jQuery not to set contentType
+            "data": new FormData(this),
+            "url": "api/department_worker/photo/" + id,
+        };
+
+        $.ajax(formSettings).success(function (response) {
+            if (response.status == 'failed' || response.status == 'error') {
+                console.log(JSON.stringify(response));
+                notify("Failed to save data, please try again :" + JSON.stringify(response), "warning");
+            } else if (response.status == 'success') {
+                console.log(JSON.stringify(response));
+                notify("Data updated", "success");
+                setTimeout(function () {
+                    window.location.reload();
+                }, 2000);
+
+            } else {
+
+            }
+
+        });
+    }
     this.logout = function () {
         notify("Signing out...", "success");
         var formsSettings = {
@@ -197,10 +301,18 @@ function consoleApp() {
                 console.log(JSON.stringify(response));
                 var appendData = "";
                 $.each(response.data, function (key, value) {
+                    var gender = "";
+                    if (value.gender == "1" || value.gender == 1) {
+                        gender = "Male";
+                    } else if (value.gender == "2" || value.gender == 2) {
+                        gender = "Female";
+                    } else {
+                        gender = "N/A";
+                    }
                     appendData += '<tr><td>' + value.id + '</td>' +
                         '<td>' + value.name + '</td>' +
                         '<td>' + value.username + '</td>' +
-                        '<td>' + value.gender + '</td>' +
+                        '<td>' + gender + '</td>' +
                         '<td>' + value.telephone + '</td>' +
                         '<td>' + value.email_address + '</td>' +
                         '<td>' +
@@ -239,15 +351,18 @@ function consoleApp() {
                 console.log(JSON.stringify(response));
                 var appendData = "";
                 $.each(response.data, function (key, value) {
-                    /* 
-                    <td>Residence</td>
-                    <td>Nationality</td>
-
-                    */
+                    var gender = "";
+                    if (value.gender == "1" || value.gender == 1) {
+                        gender = "Male";
+                    } else if (value.gender == "2" || value.gender == 2) {
+                        gender = "Female";
+                    } else {
+                        gender = "N/A";
+                    }
                     appendData += '<tr><td>' + value.id + '</td>' +
                         '<td>' + value.first_name + ' ' + value.middle_name + ' ' + value.last_name + '</td>' +
                         '<td>' + value.username + '</td>' +
-                        '<td>' + value.gender + '</td>' +
+                        '<td>' + gender + '</td>' +
                         '<td>' + value.telephone + '</td>' +
                         '<td>' + value.email_address + '</td>' +
                         '<td>' + value.residence + '</td>' +
@@ -284,6 +399,7 @@ function consoleApp() {
                     $("#updateDWForm .email_address").val(value.email_address);
                     $("#updateDWForm .telephone").val(value.telephone);
                     $("#updateDWForm").attr("data-id", value.id);
+                    $("#changeImageDw .img").attr("src", "./uploads/"+value.image);
                 });
             }
 

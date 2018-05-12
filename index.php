@@ -17,18 +17,11 @@
 					<br style="clear:both;">
 					<br style="clear:both;">
 					<h3 class="caption-heading">
-          Title
+          We believe that “there are no unwanted children
 					</h3>
-					<p>some description that you want to appear.</p>
-          <br style="clear:both;">
-          <br style="clear:both;">
-          <br style="clear:both;">
-					<br style="clear:both;">
-          <div class="cc-controls">
-						<a class="btn-lg-custom" href="./about.php">About us</a>
-						&nbsp; &nbsp; &nbsp;
-						<a class="eventsLink" href="./about.php">Our Mission</a>
-					</div>
+					
+
+         
 				</div>
 			</div>
 
@@ -36,18 +29,9 @@
 				<div class='slideItem2'></div>
 				<div class="carousel-caption cpt">
 				<h3 class="caption-heading">
-          Title
+				To help find them, we provide the following services: Public Awareness and Recruitment; Information and Referral; Matching Events, and Advocacy. 
 					</h3>
-					<p>some description that you want to appear.</p>
-          <br style="clear:both;">
-          <br style="clear:both;">
-          <br style="clear:both;">
-					<br style="clear:both;">
-          <div class="cc-controls">
-						<a class="btn-lg-custom" href="./about.php">Get to know more about us</a>
-						&nbsp; &nbsp; &nbsp;
-						<a class="eventsLink" href="./contact.php">Adopt a child today</a>
-					</div>
+					
 				</div>
 			</div>
 
@@ -55,18 +39,8 @@
 				<div class='slideItem3'></div>
 				<div class="carousel-caption cpt">
 				<h3 class="caption-heading">
-          Title
+				We work with child welfare agencies in our shared vision that every child deserves to grow up in a safe, loving and nurturing family.
 					</h3>
-					<p>some description that you want to appear.</p>
-          <br style="clear:both;">
-          <br style="clear:both;">
-          <br style="clear:both;">
-					<br style="clear:both;">
-          <div class="cc-controls">
-						<a class="btn-lg-custom" href="./safaris.php">See all our children</a>
-						&nbsp; &nbsp; &nbsp;
-						<a class="eventsLink" href="contact.php">Register as an Adopter</a>
-					</div>
 				</div>
 			</div>
 
@@ -148,6 +122,16 @@
 		</div>
 	<div class="col-md-12">
 <iframe width="100%" height="500px" src="https://www.youtube.com/embed/vIieXvpSifU" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+</div></div></div><br/>
+<br/>
+
+<div data-aos="fade-up" class="container">
+<div class="row">
+	<div class="col-md-12">
+		<h3 class="page-header">Find us at</h3>
+		</div>
+	<div class="col-md-12">
+<iframe src="https://www.google.com/maps/embed?pb=!1m14!1m8!1m3!1d15959.02954649789!2d32.5785928!3d0.316658!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0xbeeca0a4abdad5ef!2sMinistry+of+Gender+Labour+and+Social+Development!5e0!3m2!1sen!2sug!4v1526125449091" width="100%" height="450" frameborder="0" style="border:0" allowfullscreen></iframe>
 </div></div></div><br/>
 <br/>
 

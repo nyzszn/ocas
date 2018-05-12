@@ -45,6 +45,41 @@ function registerChild()
     function getAllChildren()
     {
         $conn = connect_db();
+        $sql = "SELECT * FROM child WHERE adopted != 2";
+        $result = mysqli_query($conn, $sql);
+        if (!$result) {
+    
+            echo json_encode(array(
+                'status' => 'error',
+                'message' => mysqli_error($conn)
+            ));
+            exit();
+        }
+        else {
+    
+            if ($result->num_rows > 0) {
+    
+                echo json_encode(array(
+                    'status' => 'success',
+                    'data' => $result->fetch_all(MYSQLI_ASSOC)
+                ));
+                exit();
+            }
+            else if ($result->num_rows <= 0) {
+    
+                echo json_encode(array(
+                    'status' => 'failed',
+                    'message' => 'There are no children registered'
+                ));
+                exit();
+            }
+        }
+	}
+	
+		//get all Children
+    function getAllChildrenEvenAdopted()
+    {
+        $conn = connect_db();
         $sql = "SELECT * FROM child";
         $result = mysqli_query($conn, $sql);
         if (!$result) {
@@ -74,7 +109,8 @@ function registerChild()
                 exit();
             }
         }
-    }
+	}
+	
 
     //get dhild by id
     function getChildById($id = '')

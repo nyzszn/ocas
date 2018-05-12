@@ -268,9 +268,9 @@ function dwPassword($id){
 function setDwPhoto($id = '')
 {
 	$conn = connect_db();
-	if (isset($_FILES['image'])) {
+	if (isset($_FILES['user_image'])) {
 
-		$uploadedFile = uploadPhoto('image', '../uploads');
+		$uploadedFile = uploadPhoto('user_image', '../uploads');
 
 		$sql = $conn->prepare("UPDATE department_worker SET image=? WHERE id=? ");
 		$sql->bind_param("si", $a, $b);

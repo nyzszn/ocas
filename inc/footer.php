@@ -29,13 +29,63 @@
 						<br/><br/>
 						<i class="fas fa-envelope"> </i>  &nbsp; info@onlinechildadoption.com  &nbsp; |  &nbsp; onlinechildadoption@gmail.com
 					</p>
-					<a class="btn btn-default" href="./contact-us">Talk to us.</a>
 					<br/><br/>
 					<p>2018 &copy; all right reserved.</p>
 			</div>
 		</div>
 	</div>
 </div>
+
+
+<div id="adoptModal" class="modal fade" role="dialog">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button class="close" type="button" data-dismiss="modal">&times;</button>
+                <h3 class="text-left">Please fill in this form</h3>
+            </div>
+            <div class="modal-body">
+				
+<form class="adoptForm" id="adoptForm">
+                <p>This information is used by our System to determine whether your fit to adopt a child</p>
+				<div class="input-group">
+					<span class="input-group-addon">Marital Status</span>
+					<select class="marital form-control">
+						<option selected value="Single">Single</option>
+						<option value="Married">Married</option>
+						<option value="Divorced">Divorced</option>
+					</select>
+				</div>
+				<br>
+				<div class="input-group">
+					<span class="input-group-addon">Proffession</span>
+					<input name="Proffession" type="text" class="proffession form-control" placeholder="Proffession / Work" required>
+				</div>
+				<br>
+				<div class="input-group">
+					<span class="input-group-addon">Income</span>
+					<input name="income" type="text" class="income form-control" placeholder="Monthly Income" required>
+				</div>
+				<br>
+				<div class="input-group">
+					<span class="input-group-addon">Languages you can speak</span>
+					<textarea name="language" type="text" class="language form-control" placeholder="List them here" required></textarea>
+				</div>
+				<br>
+				<div class="input-group">
+					<span class="input-group-addon">Reason For Adopting the Child</span>
+					<textarea name="reason" type="text" class="reason form-control" placeholder="Reason for Adopting the Child" required></textarea>
+				</div>
+				
+			<br>
+			<Button type="submit" class="continue btn btn-default">Adopt <span class="fa fa-angle-right"></span></Button>
+</form>
+                </div>
+        </div>
+    </div>
+</div>
+
+
 	<!-- Js files -->
 	<script src="./js/jquery.min.js"></script>
 	<script src="./js/bootstrap.min.js"></script>

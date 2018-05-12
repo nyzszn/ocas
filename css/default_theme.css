@@ -29,7 +29,7 @@ h1, h2, h3{
 }
 body{
     background-attachment: fixed;
-    background-image: url('../img/bg-pattern.png');
+    background-image: url('../img/book-background.jpg');
     background-repeat: repeat;
     background-position: center;
 }
@@ -244,26 +244,26 @@ body{
     transition: 0.3s all ease-in-out;
 }
 .safaris-module .item:hover{
-    background-size: 150%;
+    background-size: cover;
     border:2px solid #ffeb3b;
 }
 .s-1{
-   background-image: url('../img/slider/4.jpg');
+   background-image: url('../img/1.png');
    background-position: center;
    background-repeat: no-repeat;
-   background-size: 130%;
+   background-size: cover;
 }
 .s-2{
-    background-image: url('../img/wildlife.jpg');
+    background-image: url('../img/2.jpg');
     background-position: center;
     background-repeat: no-repeat;
-    background-size: 130%;
+    background-size: cover;
  }
 .s-3{
-    background-image: url('../img/gorilla.jpg');
+    background-image: url('../img/3.jpg');
     background-position: center;
     background-repeat: no-repeat;
-    background-size: 130%;
+    background-size: cover;
  }
 .safaris-module .item h4{
     background-color: rgba(0,0,0,0.5);
@@ -477,7 +477,7 @@ body{
 }
 .content{
     background-color: #fff;
-    margin-top: 80px;
+    margin-top: 120px;
 }
 .content h3{
     font-size: 30px;
@@ -756,4 +756,28 @@ form.contact-form button:hover {
 }
 .list-group-item a{
     display: block;
+}
+.adoptions{
+    border:1px solid #000;
+    border-radius:5px;
+    height: auto;
+    padding: 10px;
+    margin:10px;
+    transition: 0.3s all ease-in-out;
+}
+.adoptions:hover{
+    background-color: rgba(141,121,174,0.1);
+}
+.adoptions .img{
+    width:200px;
+    height:200px;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
+    float:left;
+}
+.adoptions .content{
+    float: left;
+    margin: 0 0 0 10px;
+    background-color: rgba(0,0,0,0);
 }

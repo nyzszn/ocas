@@ -1,4 +1,20 @@
 <?php
+session_start();
+if (isset($_SESSION['ocas-user_id']) && !empty($_SESSION['ocas-user_id']) &&
+    isset($_SESSION['ocas-user_name']) && !empty($_SESSION['ocas-user_name']) &&
+    isset($_SESSION['ocas-user_account']) && $_SESSION['ocas-user_account'] == 'adopter')
+    {
+        //setting cokies for the user type to be used when user is loged in
+    $cookie_name = "adopter";
+    $cookie_value = $_SESSION['ocas-user_id'];
+//set for 30 day most probably a month
+    if (!isset($_COOKIE[$cookie_name])) {
+        setcookie($cookie_name, $cookie_value, time() + (66400 * 30), "/");
+    }
+}
+
+?>
+<?php
 include './inc/header.php';
 ?>
 <div class="container content">
@@ -14,32 +30,8 @@ include './inc/header.php';
     </div>
     </div>
     <br/>
-    <div class="row team">
-    <div class="col-md-4 child">
-        <a href="./child-profile.php"><div class="img i-1"></div>
-        <br/>
-    <p class="text-center"> <b>John Paul</b> <br/>
-    Age: 15
-</p>
-</a>
-    </div>
-    <div class="col-md-4 child">
-    <a href="./child-profile.php">
-    <div class="img i-1"></div>
-        <br/>
-    <p class="text-center"> <b>Kyobe John</b> <br/>
-    Founder & Managing Director
-</p></a>
-    </div>
-    <div class="col-md-4 child">
-    <a href="./child-profile.php">
-    <div class="img i-1"></div>
-        <br/>
-    <p class="text-center"> <b>Kyobe John</b> <br/>
-    Founder & Managing Director
-</p>
-</a>
-    </div>
+    <div id="childList" class="row team">
+        
     </div>
 </div>
 

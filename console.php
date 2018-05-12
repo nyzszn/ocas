@@ -233,6 +233,25 @@ include './inc/header.php';
 
 			    <Button type="submit" class="continue btn btn-default">Submit & save &nbsp; <span class="fas fa-paper-plane"> </span></Button>
                 </form>
+                <form class="changePasswordDw" id="changePasswordDw">
+                    <h3>Change Password</h3>
+                    <div class="input-group">
+                    <span class="input-group-addon">Password</span>
+                        <input name="password" type="password" class="password form-control" placeholder="New Password" required>
+                    </div>
+                    <br>
+                    <Button type="submit" class="btn btn-default">Change Password &nbsp; <span class="fas fa-asterisk"> </span></Button>
+                </form>
+                <form class="changeImageDw" id="changeImageDw" method="post" enctype="multipart/form-data">
+                    <h3>Change Image</h3>
+                    <img src="" class="img img-responsive img-thumbnail">
+                    <div class="input-group">
+                    <span class="input-group-addon">Image</span>
+                        <input name="user_image" id="user_image" type="file" class="user_image form-control" placeholder="New Image" required>
+                    </div>
+                    <br>
+                    <Button type="submit" class="btn btn-default">Update Image &nbsp; <span class="fas fa-upload"> </span></Button>
+                </form>
                 </div>
         </div>
     </div>

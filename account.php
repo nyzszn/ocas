@@ -1,17 +1,30 @@
 <?php
+session_start();
+if (isset($_SESSION['ocas-user_id']) && !empty($_SESSION['ocas-user_id']) &&
+    isset($_SESSION['ocas-user_name']) && !empty($_SESSION['ocas-user_name']) &&
+    isset($_SESSION['ocas-user_account']) && $_SESSION['ocas-user_account'] == 'adopter')
+    {
+		header("location:./dash.php");
+}
+else {
+    $_SESSION = array();
+    session_destroy();
+}
+?>
+<?php
 include './inc/header.php';
 ?>
 <div class="container content account">
     <div class="row">
       <div class="col-md-5" style="height:90vh; border-right:2px solid rgba( 25,  5, 58,1);">
-      <form class="mainLogin" id="userLogin">
+      <form class="userLogin" id="userLogin">
 			<br/>
 				<br/>
                 <h3 class="text-left">Login as an Adopter</h3>
                 <p>Login if you already have an account</p>
 				<div class="input-group">
 					<span class="input-group-addon"><i class="fa fa-user"></i></span>
-					<input name="username" type="email" class="username form-control" placeholder="Email" required>
+					<input name="username" type="text" class="username form-control" placeholder="Username" required>
 				</div>
 				<br>
 				<div class="input-group">
@@ -30,43 +43,48 @@ include './inc/header.php';
 				<h3 class="text-left">Adopter Account Signup / register</h3>
 				<p class="text-left">Create new account if you are a new user.</p>
 				<div class="input-group">
-					<span class="input-group-addon"><i class="fa fa-user"></i></span>
-					<input name="username" type="email" class="username form-control" placeholder="Email" required>
+					<span class="input-group-addon">Email</span>
+					<input name="username" type="email" class="email_address form-control" placeholder="Email" required>
+				</div>
+				<br>
+				<div class="input-group">
+					<span class="input-group-addon">Username</span>
+					<input name="username" type="text" class="username form-control" placeholder="Email" required>
 				</div>
 				<br>
 				<div class="input-group">
 					<span class="input-group-addon">First Name</span>
-					<input name="f_name" type="text" class="f_name form-control" placeholder="First Name" required>
+					<input name="f_name" type="text" class="first_name form-control" placeholder="First Name" required>
                 </div>
                 <br>
                 <div class="input-group">
 					<span class="input-group-addon">Middle Name</span>
-					<input name="m_name" type="text" class="m_name form-control" placeholder="Middle Name" required>
+					<input name="m_name" type="text" class="middle_name form-control" placeholder="Middle Name" required>
                 </div>
                 <br>
                 <div class="input-group">
 					<span class="input-group-addon">Last Name</span>
-					<input name="l_name" type="text" class="l_name form-control" placeholder="Last Name" required>
+					<input name="l_name" type="text" class="last_name form-control" placeholder="Last Name" required>
 				</div>
 				<br>
 				<div class="input-group">
 					<span class="input-group-addon"><i class="fa fa-calendar"></i> Date of Birth</span>
-					<input name="user_dob" type="date" class="user_dob form-control" placeholder="Date of Birth" required>
+					<input name="user_dob" type="date" class="data_of_birth form-control" placeholder="Date of Birth" required>
 				</div>
 				<br>
 				<div class="input-group">
 					<span class="input-group-addon"><i class="fa fa-phone"></i></span>
-					<input name="user_contact" type="tel" class="user_contact form-control" placeholder="Phone contact" required>
+					<input name="user_contact" type="tel" class="telephone form-control" placeholder="Phone contact" required>
 				</div>
 				<br>
 				<div class="input-group">
 					<span class="input-group-addon"><i class="fa fa-globe"></i></span>
-					<input name="user_address" type="tel" class="user_address form-control" placeholder="Address" required>
+					<input name="user_address" type="tel" class="residence form-control" placeholder="Address" required>
 				</div>
                 <br>
                 <div class="input-group">
 					<span class="input-group-addon">Country</span>
-					<select required class="form-control country">
+					<select required class="form-control nationality">
                     <option selected value="0">Select your Country</option>
 	<option value="AFG">Afghanistan</option>
 	<option value="ALA">Åland Islands</option>
@@ -322,7 +340,7 @@ include './inc/header.php';
                 <br/>
                 <div class="input-group">
 					<span class="input-group-addon">Gender</span>
-					<select class="form-control">
+					<select class="gender form-control">
                         <option value="1">Male</option>
                         <option value="2">Female</option>
                         <option selected value="0">Select your gender.</option>
@@ -331,11 +349,11 @@ include './inc/header.php';
 				<br>
 				<div class="input-group">
 					<span class="input-group-addon"><span class="fa fa-asterisk"></span></span>
-					<input name="user_password" type="password" class="user_password form-control" placeholder="Password" required>
+					<input name="user_password" type="password" class="password form-control" placeholder="Password" required>
 			</div>
 			<br>
 			<Button type="submit" class="continue btn btn-default">Register <span class="fa fa-angle-right"></span></Button>
-		
+		</form>
     </div> 
     </div> 
 </div>

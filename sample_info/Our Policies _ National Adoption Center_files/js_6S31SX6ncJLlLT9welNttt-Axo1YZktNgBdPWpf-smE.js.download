@@ -1,0 +1,1271 @@
+
+(function ($) {
+
+/**
+ * Modal Frame object for parent windows.
+ */
+Drupal.modalFrame = Drupal.modalFrame || {
+  dirtyFormsWarning: Drupal.t('Your changes will be lost if you close this popup now.'),
+  options: {},
+  iframe: { $container: null, $element: null },
+  isOpen: false,
+
+  // Flag that tells us if we have a child document loaded. Our window resize
+  // handler will ignore events while no child document is loaded.
+  isChildLoaded: false,
+
+  // Flag used to control if we have already installed our custom
+  // event handlers to the parent window.
+  parentReady: false,
+
+  // Provide a unique namespace for event handlers managed by this
+  // Modal Frame instance.
+  uniqueName: 'modalframe-'+ ((new Date()).getTime())
+};
+
+/**
+ * Provide a unique name for an event handler.
+ */
+Drupal.modalFrame.eventHandlerName = function(name) {
+  var self = this;
+  return name +'.'+ self.uniqueName;
+};
+
+/**
+ * Open a modal frame.
+ *
+ * Ensure that only one modal frame is opened ever. Use Drupal.modalFrame.load()
+ * if the modal frame is already open but a new page needs to be loaded.
+ *
+ * @param options
+ *   Properties of the modal frame to open:
+ *   - url: the URL of the page to open in the modal frame.
+ *   - width: width of the modal frame in pixels.
+ *   - height: height of the modal frame in pixels.
+ *   - autoFit: boolean indicating whether the modal frame should be resized to
+ *     fit the contents of the document loaded.
+ *   - onOpen: callback to invoke when the modal frame is opened.
+ *   - onLoad: callback to invoke when the child document in the modal frame is
+ *     fully loaded.
+ *   - onSubmit: callback to invoke when the modal frame is closed.
+ *     @todo: We could rename onSubmit to onClose, however we would be breaking
+ *     other modules that rely on it. Maybe when doing a formal port to D7?
+ *   - customDialogOptions: an object with custom jQuery UI Dialog options.
+ *
+ * @return
+ *   If the modal frame was opened true, otherwise false.
+ */
+Drupal.modalFrame.open = function(options) {
+  var self = this;
+
+  // Just one modal is allowed.
+  if (self.isOpen || $('#modalframe-container').size()) {
+    return false;
+  }
+
+  // Make sure the modal frame is not resized until a child document is loaded.
+  self.isChildLoaded = false;
+
+  // If not ready yet, install custom event handlers to the parent window
+  // for proper communication with the child window.
+  if (!self.parentReady) {
+    // Install a custom event handler to allow child windows to tell us they
+    // have just loaded a document.
+    $(window).bind(self.eventHandlerName('childLoad'), function(event, iFrameWindow, isClosing) {
+      self.bindChild(iFrameWindow, isClosing);
+    });
+
+    // Install a custom event handler to allow child windows to tell us they
+    // are unloading the document.
+    $(window).bind(self.eventHandlerName('childUnload'), function(event, iFrameWindow) {
+      self.unbindChild(iFrameWindow);
+    });
+
+    // Install a custom event handler to allow child windows to tell us they
+    // want to close the Modal Frame.
+    $(window).bind(self.eventHandlerName('childClose'), function(event, args, statusMessages) {
+      self.close(args, statusMessages);
+    });
+
+    // Ok, so we're ready to properly communicate with child windows.
+    self.parentReady = true;
+  }
+
+  // For some reason, onblur events attached by the Drupal autocomplete
+  // behavior do not fire after a Modal Frame has been closed. I spent a lot
+  // of time trying to figure out the cause, but I've been unable to. :(
+  // Anyway, here's a temporary fix that makes sure the autocomplete popup
+  // is hidden as soon as the user selects a candidate. I'm not enterily
+  // happy with this solution, but it seems to solve the problem for now.
+  // Please, see the following issue: http://drupal.org/node/635754
+  if (Drupal.jsAC && !Drupal.jsAC.prototype.modalFrameSelect) {
+    Drupal.jsAC.prototype.modalFrameSelect = Drupal.jsAC.prototype.select;
+    Drupal.jsAC.prototype.select = function(node) {
+      this.modalFrameSelect(node);
+      this.hidePopup();
+    };
+  }
+
+  // Build the modal frame options structure.
+  self.options = {
+    url: options.url,
+    width: options.width,
+    height: options.height,
+    autoFit: (options.autoFit == undefined || options.autoFit),
+    draggable: (options.draggable == undefined || options.draggable),
+    onOpen: options.onOpen,
+    onLoad: options.onLoad,
+    onSubmit: options.onSubmit,
+    customDialogOptions: options.customDialogOptions || {}
+  };
+
+  // Create the dialog and related DOM elements.
+  self.create();
+
+  // Open the dialog offscreen where we can set its size, etc.
+  self.iframe.$container.dialog('option', {position: ['-999em', '-999em']}).dialog('open');
+
+  return true;
+};
+
+/**
+ * Create the modal dialog.
+ */
+Drupal.modalFrame.create = function() {
+  var self = this;
+
+  // Note: We use scrolling="yes" for IE as a workaround to yet another IE bug
+  // where the horizontal scrollbar is always rendered, no matter how wide the
+  // iframe element is defined. IE also requires a few more non-std properties.
+  self.iframe.$element = $('<iframe id="modalframe-element" name="modalframe-element"'+ ($.browser.msie ? ' scrolling="yes" frameborder="0" allowTransparency="true"' : '') +'/>');
+  self.iframe.$container = $('<div id="modalframe-container"/>').append(self.iframe.$element);
+  $('body').append(self.iframe.$container);
+
+  // Open callback for the jQuery UI dialog.
+  var dialogOpen = function() {
+    // Unbind the keypress handler installed by ui.dialog itself.
+    // IE does not fire keypress events for some non-alphanumeric keys
+    // such as the tab character. http://www.quirksmode.org/js/keys.html
+    // Also, this is not necessary here because we need to deal with an
+    // iframe element that contains a separate window.
+    // We'll try to provide our own behavior from bindChild() method.
+    $('.modalframe').unbind('keypress.ui-dialog');
+
+    // Adjust close button features.
+    $('.modalframe .ui-dialog-titlebar-close:not(.modalframe-processed)').addClass('modalframe-processed')
+      .attr('href', 'javascript:void(0)')
+      .attr('title', Drupal.t('Close'))
+      .unbind('click').bind('click', function() { self.close(false); return false; });
+
+    // Adjust titlebar.
+    if (!self.options.draggable) {
+      $('.modalframe .ui-dialog-titlebar').css('cursor', 'default');
+    }
+
+    // Fix dialog position on the viewport.
+    self.fixPosition($('.modalframe'), true);
+
+    // Compute initial dialog size.
+    var dialogSize = self.sanitizeSize({width: self.options.width, height: self.options.height});
+
+    // Compute frame size and dialog position based on dialog size.
+    var frameSize = $.extend({}, dialogSize);
+    frameSize.height -= $('.modalframe .ui-dialog-titlebar').outerHeight(true);
+    var dialogPosition = self.computeCenterPosition($('.modalframe'), dialogSize);
+
+    // Adjust size of the iframe element and container.
+    $('.modalframe').width(dialogSize.width).height(dialogSize.height);
+    self.iframe.$container.width(frameSize.width).height(frameSize.height);
+    self.iframe.$element.width(frameSize.width).height(frameSize.height);
+
+    // Update the dialog size so that UI internals are aware of the change.
+    self.iframe.$container.dialog('option', {width: dialogSize.width, height: dialogSize.height});
+
+    // Hide the dialog, center it on the viewport and then fade it in with
+    // the iframe still hidden, until the child document is loaded.
+    self.iframe.$element.hide();
+    $('.modalframe').hide().css({top: dialogPosition.top, left: dialogPosition.left});
+    $('.modalframe').fadeIn('slow', function() {
+      // Load the document on the hidden iframe (see bindChild method).
+      self.load(self.options.url);
+    });
+
+    // Install the window resize event handler if autoFit option is enabled.
+    if (self.options.autoFit) {
+      var $window = $(window);
+      self.currentWindowSize = {width: $window.width(), height: $window.height()};
+      $window.bind(self.eventHandlerName('resize'), function() {
+        // Prevent from resizing the modal frame while a child document is
+        // loading or unloading. Note that we will resize the modal frame
+        // anyway, as soon as it is loaded, so we can safely ignore these
+        // events until then.
+        if (!self.isChildLoaded) {
+          return;
+        }
+        // Check that we really have a modal frame opened.
+        if (!self.isOpen || !self.isObject(self.iframe.documentSize)) {
+          return;
+        }
+        // Do not resize the modal frame if the window dimensions have not
+        // changed more than a few pixels tall or wide.
+        var newWindowSize = {width: $window.width(), height: $window.height()};
+        if (Math.abs(self.currentWindowSize.width - newWindowSize.width) > 5 || Math.abs(self.currentWindowSize.height - newWindowSize.height) > 5) {
+          self.currentWindowSize = newWindowSize;
+          self.resize();
+        }
+      });
+    }
+
+    // Allow external modules to intervene when the modal frame is just opened.
+    if ($.isFunction(self.options.onOpen)) {
+      self.options.onOpen(self);
+    }
+
+    self.isOpen = true;
+  };
+
+  // BeforeClose callback for the jQuery UI dialog.
+  var dialogBeforeClose = function() {
+    if (self.beforeCloseEnabled) {
+      return true;
+    }
+    if (!self.beforeCloseIsBusy) {
+      self.beforeCloseIsBusy = true;
+      setTimeout(function() { self.close(false); }, 1);
+    }
+    return false;
+  };
+
+  // Close callback for the jQuery UI dialog.
+  var dialogClose = function() {
+    if (self.options.autoFit) {
+      $(window).unbind(self.eventHandlerName('resize'));
+      delete self.currentWindowSize;
+    }
+    $(document).unbind(self.eventHandlerName('keydown'));
+    $('.modalframe .ui-dialog-titlebar-close').unbind(self.eventHandlerName('keydown'));
+    self.fixPosition($('.modalframe'), false);
+    try {
+      self.iframe.$element.remove();
+      self.iframe.$container.dialog('destroy').remove();
+    } catch(e) {};
+    delete self.iframe.documentSize;
+    delete self.iframe.Drupal;
+    delete self.iframe.$element;
+    delete self.iframe.$container;
+    if (self.beforeCloseEnabled) {
+      delete self.beforeCloseEnabled;
+    }
+    if (self.beforeCloseIsBusy) {
+      delete self.beforeCloseIsBusy;
+    }
+    self.isOpen = false;
+  };
+
+  // Options for the jQuery UI dialog.
+  var dialogOptions = {
+    modal: true,
+    autoOpen: false,
+    closeOnEscape: true,
+    draggable: self.options.draggable,
+    resizable: false,
+    title: Drupal.t('Loading...'),
+    dialogClass: 'modalframe',
+    open: dialogOpen,
+    beforeclose: dialogBeforeClose,
+    close: dialogClose
+  };
+
+  // Hide the contents of the dialog while dragging?
+  if (self.options.draggable) {
+    dialogOptions.dragStart = function() {
+      self.iframe.$container.hide();
+    };
+    dialogOptions.dragStop = function() {
+      self.iframe.$container.show('fast');
+    };
+  }
+
+  // Allow external scripts to override the default jQuery UI Dialog options.
+  $.extend(dialogOptions, self.options.customDialogOptions);
+
+  // Open the jQuery UI dialog offscreen.
+  self.iframe.$container.dialog(dialogOptions);
+};
+
+/**
+ * Load the given URL into the dialog iframe.
+ */
+Drupal.modalFrame.load = function(url) {
+  var self = this;
+  var iframe = self.iframe.$element.get(0);
+  // Get the document object of the iframe window.
+  // @see http://xkr.us/articles/dom/iframe-document/
+  var doc = (iframe.contentWindow || iframe.contentDocument);
+  if (doc.document) {
+    doc = doc.document;
+  }
+  // Install an onLoad event handler for the iframe element. This is a
+  // last resort mechanism, in case the server-side code of the child
+  // window is broken and it does not invoke modalframe_child_js().
+  self.iframe.$element.bind('load', function() {
+    // If the iframe is not visible, this means the bindChild() method
+    // has not been invoked, hence something went wrong. If we do not
+    // show the iframe now, we'll get an endless loading animation.
+    // Showing the iframe is not the perfect solution, but it is better
+    // than nothing. Probably, there's a bug in the server-side script.
+    if (!self.iframe.$element.is(':visible')) {
+      setTimeout(function() {
+        try {
+          self.iframe.$element.fadeIn('fast');
+        } catch(e) {}
+      }, 1000);
+    }
+  });
+  doc.location.replace(url);
+};
+
+/**
+ * Check if the dialog can be closed.
+ */
+Drupal.modalFrame.canClose = function() {
+  var self = this;
+  if (!self.isOpen) {
+    return false;
+  }
+  if (self.isObject(self.iframe.Drupal)) {
+    // Ignore errors that may happen here.
+    try {
+      // Prompt the user for confirmation to close the dialog if the child
+      // window has dirty forms.
+      if (self.isObject(self.iframe.Drupal.dirtyForms)) {
+        if (self.iframe.Drupal.dirtyForms.isDirty() && !confirm(self.dirtyFormsWarning)) {
+          return false;
+        }
+        self.iframe.Drupal.dirtyForms.warning = null;
+      }
+      // Disable onBeforeUnload behaviors on the child window.
+      if (self.isObject(self.iframe.Drupal.onBeforeUnload)) {
+        self.iframe.Drupal.onBeforeUnload.disable();
+      }
+    } catch(e) {}
+  }
+  return true;
+};
+
+/**
+ * Close the modal frame.
+ */
+Drupal.modalFrame.close = function(args, statusMessages) {
+  var self = this;
+
+  // Check if the dialog can be closed.
+  if (!self.canClose()) {
+    delete self.beforeCloseIsBusy;
+    return false;
+  }
+
+  // Hide and destroy the dialog.
+  function closeDialog() {
+    // Prevent double execution when close is requested more than once.
+    if (!self.isObject(self.iframe.$container)) {
+      return;
+    }
+    self.beforeCloseEnabled = true;
+    self.iframe.$container.dialog('close');
+    if ($.isFunction(self.options.onSubmit)) {
+      self.options.onSubmit(args, statusMessages);
+    }
+  }
+  if (!self.isObject(self.iframe.$element) || !self.iframe.$element.size() || !self.iframe.$element.is(':visible')) {
+    closeDialog();
+  }
+  else {
+    self.iframe.$element.fadeOut('fast', function() {
+      $('.modalframe').animate({height: 'hide', opacity: 'hide'}, closeDialog);
+    });
+  }
+  return true;
+};
+
+/**
+ * Bind the child window.
+ */
+Drupal.modalFrame.bindChild = function(iFrameWindow, isClosing) {
+  var self = this;
+  var $iFrameWindow = iFrameWindow.jQuery;
+  var $iFrameDocument = $iFrameWindow(iFrameWindow.document);
+  self.iframe.Drupal = iFrameWindow.Drupal;
+
+  // We are done if the child window is closing.
+  if (isClosing) {
+    return;
+  }
+
+  // Update the dirty forms warning on the child window.
+  if (self.isObject(self.iframe.Drupal.dirtyForms)) {
+    self.iframe.Drupal.dirtyForms.warning = self.dirtyFormsWarning;
+  }
+
+  // Update the dialog title with the child window title.
+  $('.modalframe .ui-dialog-title').html($iFrameDocument.attr('title'));
+
+  // Setting tabIndex makes the div focusable.
+  // Setting outline to 0 prevents a border on focus in Mozilla.
+  // Inspired by ui.dialog initialization code.
+  // @todo Causes exception: Object #<HTMLDocument> has no method 'setAttribute'
+  //       Do we even need this?
+  //$iFrameDocument.attr('tabIndex', -1).css('outline', 0);
+
+  // Perform animation to show the iframe element.
+  self.iframe.$element.fadeIn('slow', function() {
+    // @todo: Watch for experience in the way we compute the size of the
+    // iframed document. There are many ways to do it, and none of them
+    // seem to be perfect. Note though, that the size of the iframe itself
+    // may affect the size of the child document, specially on fluid layouts.
+    // If you get in trouble, then I would suggest to choose a known dialog
+    // size and disable the autoFit option.
+    self.iframe.documentSize = {width: $iFrameDocument.width(), height: $iFrameWindow('body').height() + 25};
+
+    // If the autoFit option is enabled, resize the modal frame based on the
+    // size of the child document just loaded.
+    if (self.options.autoFit) {
+      self.currentWindowSize = {width: $(window).width(), height: $(window).height()};
+      self.resize();
+
+      // Install a custom resize handler to allow the child window to trigger
+      // changes to the modal frame size.
+      $(window).unbind(self.eventHandlerName('childResize')).bind(self.eventHandlerName('childResize'), function() {
+        var overflow = $('html', $iFrameDocument).css('overflow');
+        $('html', $iFrameDocument).css('overflow', 'hidden');
+        self.iframe.documentSize = {width: $iFrameDocument.width(), height: $iFrameWindow('body').height() + 25};
+        $('html', $iFrameDocument).css('overflow', overflow);
+        self.resize();
+      });
+    }
+
+    // Try to enhance keyboard based navigation of the modal dialog.
+    // Logic inspired by the open() method in ui.dialog.js, and
+    // http://wiki.codetalks.org/wiki/index.php/Docs/Keyboard_navigable_JS_widgets
+
+    // Get a reference to the close button.
+    var $closeButton = $('.modalframe .ui-dialog-titlebar-close');
+
+    // Search tabbable elements on the iframed document to speed up related
+    // keyboard events.
+    // @todo: Do we need to provide a method to update these references when
+    // AJAX requests update the DOM on the child document?
+    var $iFrameTabbables = $iFrameWindow(':tabbable:not(form)');
+    var $firstTabbable = $iFrameTabbables.filter(':first');
+    var $lastTabbable = $iFrameTabbables.filter(':last');
+
+    // Set focus to the first tabbable element in the content area or the
+    // first button. If there are no tabbable elements, set focus on the
+    // close button of the dialog itself.
+    if (!$firstTabbable.focus().size()) {
+      $iFrameDocument.focus();
+    }
+
+    // Unbind keyboard event handlers that may have been enabled previously.
+    $(document).unbind(self.eventHandlerName('keydown'));
+    $closeButton.unbind(self.eventHandlerName('keydown'));
+
+    // When the focus leaves the close button, then we want to jump to the
+    // first/last inner tabbable element of the child window.
+    $closeButton.bind(self.eventHandlerName('keydown'), function(event) {
+      if (event.keyCode && event.keyCode == $.ui.keyCode.TAB) {
+        var $target = (event.shiftKey ? $lastTabbable : $firstTabbable);
+        if (!$target.size()) {
+          $target = $iFrameDocument;
+        }
+        setTimeout(function() { $target.focus(); }, 10);
+        return false;
+      }
+    });
+
+    // When the focus leaves the child window, then drive the focus to the
+    // close button of the dialog.
+    $iFrameDocument.bind(self.eventHandlerName('keydown'), function(event) {
+      if (event.keyCode) {
+        if (event.keyCode == $.ui.keyCode.TAB) {
+          if (event.shiftKey && event.target == $firstTabbable.get(0)) {
+            setTimeout(function() { $closeButton.focus(); }, 10);
+            return false;
+          }
+          else if (!event.shiftKey && event.target == $lastTabbable.get(0)) {
+            setTimeout(function() { $closeButton.focus(); }, 10);
+            return false;
+          }
+        }
+        else if (event.keyCode == $.ui.keyCode.ESCAPE) {
+          // Checking the closeOnEscape option, if is false then let the child window open
+          if (typeof self.options.customDialogOptions.closeOnEscape == 'undefined' || self.options.customDialogOptions.closeOnEscape) {
+            setTimeout(function() { self.close(false); }, 10);
+            return false;
+          }
+        }
+      }
+    });
+
+    // When the focus is captured by the parent document, then try
+    // to drive the focus back to the first tabbable element, or the
+    // close button of the dialog (default).
+    $(document).bind(self.eventHandlerName('keydown'), function(event) {
+      if (event.keyCode && event.keyCode == $.ui.keyCode.TAB) {
+        setTimeout(function() {
+          if (!$iFrameWindow(':tabbable:not(form):first').focus().size()) {
+            $closeButton.focus();
+          }
+        }, 10);
+        return false;
+      }
+    });
+
+    // Our window resize handler can proceed while we have a document loaded.
+    self.isChildLoaded = true;
+
+    // Get rid of the loading animation.
+    self.iframe.$container.addClass('modalframe-loaded');
+
+    // Allow external modules to intervene when the child document in the modal
+    // frame is fully loaded.
+    if ($.isFunction(self.options.onLoad)) {
+      self.options.onLoad(self, $iFrameWindow, $iFrameDocument);
+    }
+  });
+};
+
+/**
+ * Unbind the child window.
+ */
+Drupal.modalFrame.unbindChild = function(iFrameWindow) {
+  var self = this;
+
+  // Lock our window resize handler until we have a new child document loaded.
+  self.isChildLoaded = false;
+
+  // Prevent memory leaks by explicitly unbinding event handlers attached
+  // to the child document.
+  iFrameWindow.jQuery(iFrameWindow.document).unbind(self.eventHandlerName('keydown'));
+  $(window).unbind(self.eventHandlerName('childResize'));
+
+  // Change the modal dialog title.
+  $('.modalframe .ui-dialog-title').html(Drupal.t('Please, wait...'));
+
+  // Restore the loading animation.
+  self.iframe.$container.removeClass('modalframe-loaded');
+
+  // Hide the iframe element.
+  self.iframe.$element.fadeOut('fast');
+};
+
+/**
+ * Check if the given variable is an object.
+ */
+Drupal.modalFrame.isObject = function(something) {
+  return (something !== null && typeof something === 'object');
+};
+
+/**
+ * Sanitize dialog size.
+ */
+Drupal.modalFrame.sanitizeSize = function(size) {
+  var width, height;
+  var $window = $(window);
+  var minWidth = 300, maxWidth = $window.width() - 30;
+  if (typeof size.width != 'number') {
+    width = maxWidth;
+  }
+  else if (size.width < minWidth || size.width > maxWidth) {
+    width = Math.min(maxWidth, Math.max(minWidth, size.width));
+  }
+  else {
+    width = size.width;
+  }
+  var minHeight = 100, maxHeight = $window.height() - 30;
+  if (typeof size.height != 'number') {
+    height = maxHeight;
+  }
+  else if (size.height < minHeight || size.height > maxHeight) {
+    height = Math.min(maxHeight, Math.max(minHeight, size.height));
+  }
+  else {
+    height = size.height;
+  }
+  return {width: width, height: height};
+};
+
+/**
+ * Fix the position of the modal frame within the viewport.
+ *
+ * Possible alternative to position:'fixed' for IE6:
+ * @see http://www.howtocreate.co.uk/fixedPosition.html
+ */
+Drupal.modalFrame.fixPosition = function($element, isOpen) {
+  var self = this, $window = $(window);
+  if ($.browser.msie && parseInt($.browser.version) <= 6) {
+    // IE6 does not support position:'fixed'.
+    // Lock the window scrollBar instead.
+    if (isOpen) {
+      var yPos = $window.scrollTop();
+      var xPos = $window.scrollLeft();
+      $window.bind(self.eventHandlerName('scroll'), function() {
+        window.scrollTo(xPos, yPos);
+        // Default browser action cannot be prevented here.
+      });
+    }
+    else {
+      $window.unbind(self.eventHandlerName('scroll'));
+    }
+  }
+  else {
+    // Use CSS to do it on other browsers.
+    if (isOpen) {
+      var offset = $element.offset();
+      $element.css({
+        left: (offset.left - $window.scrollLeft()),
+        top: (offset.top - $window.scrollTop()),
+        position: 'fixed'
+      });
+    }
+  }
+};
+
+/**
+ * Compute the position to center an element with the given size.
+ */
+Drupal.modalFrame.computeCenterPosition = function($element, elementSize) {
+  var $window = $(window);
+  var position = {
+    left: Math.max(0, parseInt(($window.width() - elementSize.width) / 2)),
+    top: Math.max(0, parseInt(($window.height() - elementSize.height) / 2))
+  };
+  if ($element.css('position') != 'fixed') {
+    var $document = $(document);
+    position.left += $document.scrollLeft();
+    position.top += $document.scrollTop();
+  }
+  return position;
+};
+
+/**
+ * Resize the modal frame based on the current document size.
+ *
+ * This method may be invoked by:
+ * - The parent window resize handler (when the parent window is resized).
+ * - The bindChild() method (when the child document is loaded).
+ * - The child window resize handler (when the child window is resized).
+ */
+Drupal.modalFrame.resize = function() {
+  var self = this, documentSize = self.iframe.documentSize;
+
+  // Compute frame and dialog size based on document size.
+  var maxSize = self.sanitizeSize({}), titleBarHeight = $('.modalframe .ui-dialog-titlebar').outerHeight(true);
+  var frameSize = self.sanitizeSize(documentSize), dialogSize = $.extend({}, frameSize);
+  if ((dialogSize.height + titleBarHeight) <= maxSize.height) {
+    dialogSize.height += titleBarHeight;
+  }
+  else {
+    dialogSize.height = maxSize.height;
+    frameSize.height = dialogSize.height - titleBarHeight;
+  }
+
+  // Compute dialog position centered on viewport.
+  var dialogPosition = self.computeCenterPosition($('.modalframe'), dialogSize);
+
+  var animationOptions = $.extend(dialogSize, dialogPosition);
+
+  // Perform the resize animation.
+  $('.modalframe').animate(animationOptions, 'fast', function() {
+    // Proceed only if the dialog still exists.
+    if (self.isObject(self.iframe.$element) && self.isObject(self.iframe.$container)) {
+      // Resize the iframe element and container.
+      $('.modalframe').width(dialogSize.width).height(dialogSize.height);
+      self.iframe.$container.width(frameSize.width).height(frameSize.height);
+      self.iframe.$element.width(frameSize.width).height(frameSize.height);
+
+      // Update the dialog size so that UI internals are aware of the change.
+      self.iframe.$container.dialog('option', {width: dialogSize.width, height: dialogSize.height});
+    }
+  });
+};
+
+/**
+ * Render the throbber.
+ */
+Drupal.theme.prototype.modalFrameThrobber = function() {
+  return '<div class="modalframe-throbber">&nbsp;</div>';
+};
+
+})(jQuery);
+;
+(function ($, Drupal, window, undefined) {
+
+  /*
+   * Add the automodal settings to the selectors.
+   */
+  Drupal.behaviors.automodal = {
+    attach: function (context, settings) {
+      $.each(settings.automodal, function(selector, settings) {
+        $(selector +':not(.automodal-processed)', context)
+          .filter('a')
+          .addClass('automodal-processed')
+          .bind('click', function() {
+            settings.url = $(this).attr('href') || '#';
+            // Grab the location of the fragment and parse it out.
+            var hash_location = settings.url.indexOf('#');
+            if (hash_location && hash_location != -1) {
+              settings.hash = settings.url.substring(hash_location);
+              settings.url = settings.url.substring(0, hash_location);
+            }
+            if (settings.url.indexOf('?') >= 0) {
+              settings.url += '&'
+            }
+            else {
+              settings.url += '?'
+            }
+            settings.url += 'automodal=true';
+
+            // Allow others to alter the settings as needed.
+            settings = Drupal.automodal.settingsAlterCall(settings);
+            if (settings.hash) {
+              settings.url += settings.hash;
+            }
+            settings.onSubmit = Drupal.automodal.onSubmitCall;
+            Drupal.modalFrame.open(settings);
+            return false;
+          });
+      });
+    }
+  };
+
+  Drupal.automodal = Drupal.automodal || {};
+
+  /**
+   * Functions under Drupal.automodal.onSubmitCall are iterated over onSubmit
+   * for the modalFrames when the window is set to close.
+   */
+  Drupal.automodal.onSubmitCallback = {
+    automodal: function(args, statusMessages) {
+      if (args.redirect) {
+        window.location = decodeURIComponent(args.redirect);
+      }
+
+      if (args.reload) {
+        window.location.reload();
+      }
+    }
+  }
+
+  /**
+   * Functions under Drupal.automodal.settingsAlter are iterated over when a
+   * Modal Frame is created allowing the alteration of settings.
+   */
+  Drupal.automodal.settingsAlter = {
+    automodal: function(settings) {
+      if (settings.automodalClose) {
+        settings.url += '&automodalClose=true';
+      }
+
+      if (settings.automodalReload) {
+        settings.url += '&automodalReload=true';
+      }
+
+      if (settings.automodalRedirect != undefined) {
+        settings.url += '&automodalRedirect=' + encodeURIComponent(settings.automodalRedirect);
+      }
+      return settings;
+    }
+  }
+
+  /**
+   * Allow the settings to be altered for Modal Frame.
+   *
+   * When a Modal Frame instance is created allow the the settings to be altered
+   * by others. Other scripts can alter the settings by adding functions under
+   * Drupal.automodal.settingsAlter. There is a default implementation at
+   * Drupal.automodal.settingsAlter.automodal.
+   */
+  Drupal.automodal.settingsAlterCall = function(settings) {
+    var newSettings = settings;
+    for (var i in Drupal.automodal.settingsAlter) {
+      newSettings = Drupal.automodal.settingsAlter[i](newSettings);
+    }
+    return newSettings;
+  }
+
+  /**
+   * Iterate over multiple onSubmit functions when Modal Frame calls the onSubmit
+   * function. There is a default implementation at
+   * Drupal.automodal.onSubmitCallback.automodal. Other scripts can add their
+   * own callbacks as functions under Drupal.automodal.onSubmitCallback (e.g.,
+   * Drupal.automodal.onSubmitCallback.foo).
+   */
+  Drupal.automodal.onSubmitCall = function(args, statusMessages) {
+    for (var i in Drupal.automodal.onSubmitCallback) {
+      Drupal.automodal.onSubmitCallback[i](args, statusMessages);
+    }
+  }
+})(jQuery, Drupal, window);
+;
+(function($, Drupal, undefined){
+  /**
+   * When set to enable mediaelement for all audio/video files add it to the page.
+   */
+  Drupal.behaviors.mediaelement = {
+    attach: function(context, settings) {
+      if (settings.mediaelement !== undefined) {
+        // @todo Remove anonymous function.
+        $.each(settings.mediaelement, function(selector, options) {
+          var opts;
+          $(selector, context).once('mediaelement', function() {
+            if (options.controls) {
+              $(this).mediaelementplayer(options.opts);
+            }
+            else {
+              $(this).mediaelement();
+            }
+          });
+        });
+      }
+      // The global option is seperate from the other selectors as it should be
+      // run after any other selectors.
+      if (settings.mediaelementAll !== undefined) {
+        $('video,audio', context).once('mediaelement', function() {
+          $(this).mediaelementplayer();
+        });
+      }
+    }
+  };
+})(jQuery, Drupal);;
+
+/**
+ * JavaScript behaviors for the front-end display of webforms.
+ */
+
+(function ($) {
+
+Drupal.behaviors.webform = Drupal.behaviors.webform || {};
+
+Drupal.behaviors.webform.attach = function(context) {
+  // Calendar datepicker behavior.
+  Drupal.webform.datepicker(context);
+};
+
+Drupal.webform = Drupal.webform || {};
+
+Drupal.webform.datepicker = function(context) {
+  $('div.webform-datepicker').each(function() {
+    var $webformDatepicker = $(this);
+    var $calendar = $webformDatepicker.find('input.webform-calendar');
+
+    // Ensure the page we're on actually contains a datepicker.
+    if ($calendar.length == 0) { 
+      return;
+    }
+
+    var startDate = $calendar[0].className.replace(/.*webform-calendar-start-(\d{4}-\d{2}-\d{2}).*/, '$1').split('-');
+    var endDate = $calendar[0].className.replace(/.*webform-calendar-end-(\d{4}-\d{2}-\d{2}).*/, '$1').split('-');
+    var firstDay = $calendar[0].className.replace(/.*webform-calendar-day-(\d).*/, '$1');
+    // Convert date strings into actual Date objects.
+    startDate = new Date(startDate[0], startDate[1] - 1, startDate[2]);
+    endDate = new Date(endDate[0], endDate[1] - 1, endDate[2]);
+
+    // Ensure that start comes before end for datepicker.
+    if (startDate > endDate) {
+      var laterDate = startDate;
+      startDate = endDate;
+      endDate = laterDate;
+    }
+
+    var startYear = startDate.getFullYear();
+    var endYear = endDate.getFullYear();
+
+    // Set up the jQuery datepicker element.
+    $calendar.datepicker({
+      dateFormat: 'yy-mm-dd',
+      yearRange: startYear + ':' + endYear,
+      firstDay: parseInt(firstDay),
+      minDate: startDate,
+      maxDate: endDate,
+      onSelect: function(dateText, inst) {
+        var date = dateText.split('-');
+        $webformDatepicker.find('select.year, input.year').val(+date[0]).trigger('change');
+        $webformDatepicker.find('select.month').val(+date[1]).trigger('change');
+        $webformDatepicker.find('select.day').val(+date[2]).trigger('change');
+      },
+      beforeShow: function(input, inst) {
+        // Get the select list values.
+        var year = $webformDatepicker.find('select.year, input.year').val();
+        var month = $webformDatepicker.find('select.month').val();
+        var day = $webformDatepicker.find('select.day').val();
+
+        // If empty, default to the current year/month/day in the popup.
+        var today = new Date();
+        year = year ? year : today.getFullYear();
+        month = month ? month : today.getMonth() + 1;
+        day = day ? day : today.getDate();
+
+        // Make sure that the default year fits in the available options.
+        year = (year < startYear || year > endYear) ? startYear : year;
+
+        // jQuery UI Datepicker will read the input field and base its date off
+        // of that, even though in our case the input field is a button.
+        $(input).val(year + '-' + month + '-' + day);
+      }
+    });
+
+    // Prevent the calendar button from submitting the form.
+    $calendar.click(function(event) {
+      $(this).focus();
+      event.preventDefault();
+    });
+  });
+}
+
+})(jQuery);
+;
+/*!
+ * jCarousel - Riding carousels with jQuery
+ *   http://sorgalla.com/jcarousel/
+ *
+ * Copyright (c) 2006 Jan Sorgalla (http://sorgalla.com)
+ * Dual licensed under the MIT (http://www.opensource.org/licenses/mit-license.php)
+ * and GPL (http://www.opensource.org/licenses/gpl-license.php) licenses.
+ *
+ * Built on top of the jQuery library
+ *   http://jquery.com
+ *
+ * Inspired by the "Carousel Component" by Bill Scott
+ *   http://billwscott.com/carousel/
+ */
+
+(function(c){var d={vertical:false,rtl:false,start:1,offset:1,size:null,scroll:3,visible:null,animation:"normal",easing:"swing",auto:0,wrap:null,initCallback:null,setupCallback:null,reloadCallback:null,itemLoadCallback:null,itemFirstInCallback:null,itemFirstOutCallback:null,itemLastInCallback:null,itemLastOutCallback:null,itemVisibleInCallback:null,itemVisibleOutCallback:null,animationStepCallback:null,buttonNextHTML:"<div></div>",buttonPrevHTML:"<div></div>",buttonNextEvent:"click",buttonPrevEvent:"click",buttonNextCallback:null,buttonPrevCallback:null,itemFallbackDimension:null},b=false;c(window).bind("load.jcarousel",function(){b=true});c.jcarousel=function(l,g){this.options=c.extend({},d,g||{});this.locked=false;this.autoStopped=false;this.container=null;this.clip=null;this.list=null;this.buttonNext=null;this.buttonPrev=null;this.buttonNextState=null;this.buttonPrevState=null;if(!g||g.rtl===undefined){this.options.rtl=(c(l).attr("dir")||c("html").attr("dir")||"").toLowerCase()=="rtl"}this.wh=!this.options.vertical?"width":"height";this.lt=!this.options.vertical?(this.options.rtl?"right":"left"):"top";var q="",n=l.className.split(" ");for(var k=0;k<n.length;k++){if(n[k].indexOf("jcarousel-skin")!=-1){c(l).removeClass(n[k]);q=n[k];break}}if(l.nodeName.toUpperCase()=="UL"||l.nodeName.toUpperCase()=="OL"){this.list=c(l);this.clip=this.list.parents(".jcarousel-clip");this.container=this.list.parents(".jcarousel-container")}else{this.container=c(l);this.list=this.container.find("ul,ol").eq(0);this.clip=this.container.find(".jcarousel-clip")}if(this.clip.size()===0){this.clip=this.list.wrap("<div></div>").parent()}if(this.container.size()===0){this.container=this.clip.wrap("<div></div>").parent()}if(q!==""&&this.container.parent()[0].className.indexOf("jcarousel-skin")==-1){this.container.wrap('<div class=" '+q+'"></div>')}this.buttonPrev=c(".jcarousel-prev",this.container);if(this.buttonPrev.size()===0&&this.options.buttonPrevHTML!==null){this.buttonPrev=c(this.options.buttonPrevHTML).appendTo(this.container)}this.buttonPrev.addClass(this.className("jcarousel-prev"));this.buttonNext=c(".jcarousel-next",this.container);if(this.buttonNext.size()===0&&this.options.buttonNextHTML!==null){this.buttonNext=c(this.options.buttonNextHTML).appendTo(this.container)}this.buttonNext.addClass(this.className("jcarousel-next"));this.clip.addClass(this.className("jcarousel-clip")).css({position:"relative"});this.list.addClass(this.className("jcarousel-list")).css({overflow:"hidden",position:"relative",top:0,margin:0,padding:0}).css((this.options.rtl?"right":"left"),0);this.container.addClass(this.className("jcarousel-container")).css({position:"relative"});if(!this.options.vertical&&this.options.rtl){this.container.addClass("jcarousel-direction-rtl").attr("dir","rtl")}var m=this.options.visible!==null?Math.ceil(this.clipping()/this.options.visible):null;var p=this.list.children("li");var r=this;if(p.size()>0){var f=0,h=this.options.offset;p.each(function(){r.format(this,h++);f+=r.dimension(this,m)});this.list.css(this.wh,(f+100)+"px");if(!g||g.size===undefined){this.options.size=p.size()}}this.container.css("display","block");this.buttonNext.css("display","block");this.buttonPrev.css("display","block");this.funcNext=function(){r.next();return false};this.funcPrev=function(){r.prev();return false};this.funcResize=function(){if(r.resizeTimer){clearTimeout(r.resizeTimer)}r.resizeTimer=setTimeout(function(){r.reload()},100)};if(this.options.initCallback!==null){this.options.initCallback(this,"init")}if(!b&&a.isSafari()){this.buttons(false,false);c(window).bind("load.jcarousel",function(){r.setup()})}else{this.setup()}};var a=c.jcarousel;a.fn=a.prototype={jcarousel:"0.2.9"};a.fn.extend=a.extend=c.extend;a.fn.extend({setup:function(){this.first=null;this.last=null;this.prevFirst=null;this.prevLast=null;this.animating=false;this.timer=null;this.resizeTimer=null;this.tail=null;this.inTail=false;if(this.locked){return}this.list.css(this.lt,this.pos(this.options.offset)+"px");var e=this.pos(this.options.start,true);this.prevFirst=this.prevLast=null;this.animate(e,false);c(window).unbind("resize.jcarousel",this.funcResize).bind("resize.jcarousel",this.funcResize);if(this.options.setupCallback!==null){this.options.setupCallback(this)}},reset:function(){this.list.empty();this.list.css(this.lt,"0px");this.list.css(this.wh,"10px");if(this.options.initCallback!==null){this.options.initCallback(this,"reset")}this.setup()},reload:function(){if(this.tail!==null&&this.inTail){this.list.css(this.lt,a.intval(this.list.css(this.lt))+this.tail)}this.tail=null;this.inTail=false;if(this.options.reloadCallback!==null){this.options.reloadCallback(this)}if(this.options.visible!==null){var g=this;var h=Math.ceil(this.clipping()/this.options.visible),f=0,e=0;this.list.children("li").each(function(j){f+=g.dimension(this,h);if(parseInt(jQuery(this).attr("jcarouselindex"))<g.first){e=f}});this.list.css(this.wh,f+"px");this.list.css(this.lt,-e+"px")}this.scroll(this.first,false)},lock:function(){this.locked=true;this.buttons()},unlock:function(){this.locked=false;this.buttons()},size:function(e){if(e!==undefined){this.options.size=e;if(!this.locked){this.buttons()}}return this.options.size},has:function(g,h){if(h===undefined||!h){h=g}if(this.options.size!==null&&h>this.options.size){h=this.options.size}for(var f=g;f<=h;f++){var k=this.get(f);if(!k.length||k.hasClass("jcarousel-item-placeholder")){return false}}return true},get:function(e){return c(">.jcarousel-item-"+e,this.list)},add:function(l,q){var m=this.get(l),h=0,g=c(q);if(m.length===0){var p,k=a.intval(l);m=this.create(l);while(true){p=this.get(--k);if(k<=0||p.length){if(k<=0){this.list.prepend(m)}else{p.after(m)}break}}}else{h=this.dimension(m)}if(g.get(0).nodeName.toUpperCase()=="LI"){m.replaceWith(g);m=g}else{m.empty().append(q)}this.format(m.removeClass(this.className("jcarousel-item-placeholder")),l);var o=this.options.visible!==null?Math.ceil(this.clipping()/this.options.visible):null;var f=this.dimension(m,o)-h;if(l>0&&l<this.first){this.list.css(this.lt,a.intval(this.list.css(this.lt))-f+"px")}this.list.css(this.wh,a.intval(this.list.css(this.wh))+f+"px");return m},remove:function(f){var g=this.get(f);if(!g.length||(f>=this.first&&f<=this.last)){return}var h=this.dimension(g);if(f<this.first){this.list.css(this.lt,a.intval(this.list.css(this.lt))+h+"px")}g.remove();this.list.css(this.wh,a.intval(this.list.css(this.wh))-h+"px")},next:function(){if(this.tail!==null&&!this.inTail){this.scrollTail(false)}else{this.scroll(((this.options.wrap=="both"||this.options.wrap=="last")&&this.options.size!==null&&this.last==this.options.size)?1:this.first+this.options.scroll)}},prev:function(){if(this.tail!==null&&this.inTail){this.scrollTail(true)}else{this.scroll(((this.options.wrap=="both"||this.options.wrap=="first")&&this.options.size!==null&&this.first==1)?this.options.size:this.first-this.options.scroll)}},scrollTail:function(e){if(this.locked||this.animating||!this.tail){return}this.pauseAuto();var f=a.intval(this.list.css(this.lt));f=!e?f-this.tail:f+this.tail;this.inTail=!e;this.prevFirst=this.first;this.prevLast=this.last;this.animate(f)},scroll:function(f,e){if(this.locked||this.animating){return}this.pauseAuto();this.animate(this.pos(f),e)},pos:function(C,k){var n=a.intval(this.list.css(this.lt));if(this.locked||this.animating){return n}if(this.options.wrap!="circular"){C=C<1?1:(this.options.size&&C>this.options.size?this.options.size:C)}var z=this.first>C;var E=this.options.wrap!="circular"&&this.first<=1?1:this.first;var H=z?this.get(E):this.get(this.last);var B=z?E:E-1;var F=null,A=0,w=false,G=0,D;while(z?--B>=C:++B<C){F=this.get(B);w=!F.length;if(F.length===0){F=this.create(B).addClass(this.className("jcarousel-item-placeholder"));H[z?"before":"after"](F);if(this.first!==null&&this.options.wrap=="circular"&&this.options.size!==null&&(B<=0||B>this.options.size)){D=this.get(this.index(B));if(D.length){F=this.add(B,D.clone(true))}}}H=F;G=this.dimension(F);if(w){A+=G}if(this.first!==null&&(this.options.wrap=="circular"||(B>=1&&(this.options.size===null||B<=this.options.size)))){n=z?n+G:n-G}}var s=this.clipping(),u=[],h=0,t=0;H=this.get(C-1);B=C;while(++h){F=this.get(B);w=!F.length;if(F.length===0){F=this.create(B).addClass(this.className("jcarousel-item-placeholder"));if(H.length===0){this.list.prepend(F)}else{H[z?"before":"after"](F)}if(this.first!==null&&this.options.wrap=="circular"&&this.options.size!==null&&(B<=0||B>this.options.size)){D=this.get(this.index(B));if(D.length){F=this.add(B,D.clone(true))}}}H=F;G=this.dimension(F);if(G===0){throw new Error("jCarousel: No width/height set for items. This will cause an infinite loop. Aborting...")}if(this.options.wrap!="circular"&&this.options.size!==null&&B>this.options.size){u.push(F)}else{if(w){A+=G}}t+=G;if(t>=s){break}B++}for(var r=0;r<u.length;r++){u[r].remove()}if(A>0){this.list.css(this.wh,this.dimension(this.list)+A+"px");if(z){n-=A;this.list.css(this.lt,a.intval(this.list.css(this.lt))-A+"px")}}var q=C+h-1;if(this.options.wrap!="circular"&&this.options.size&&q>this.options.size){q=this.options.size}if(B>q){h=0;B=q;t=0;while(++h){F=this.get(B--);if(!F.length){break}t+=this.dimension(F);if(t>=s){break}}}var o=q-h+1;if(this.options.wrap!="circular"&&o<1){o=1}if(this.inTail&&z){n+=this.tail;this.inTail=false}this.tail=null;if(this.options.wrap!="circular"&&q==this.options.size&&(q-h+1)>=1){var y=a.intval(this.get(q).css(!this.options.vertical?"marginRight":"marginBottom"));if((t-y)>s){this.tail=t-s-y}}if(k&&C===this.options.size&&this.tail){n-=this.tail;this.inTail=true}while(C-->o){n+=this.dimension(this.get(C))}this.prevFirst=this.first;this.prevLast=this.last;this.first=o;this.last=q;return n},animate:function(i,e){if(this.locked||this.animating){return}this.animating=true;var f=this;var g=function(){f.animating=false;if(i===0){f.list.css(f.lt,0)}if(!f.autoStopped&&(f.options.wrap=="circular"||f.options.wrap=="both"||f.options.wrap=="last"||f.options.size===null||f.last<f.options.size||(f.last==f.options.size&&f.tail!==null&&!f.inTail))){f.startAuto()}f.buttons();f.notify("onAfterAnimation");if(f.options.wrap=="circular"&&f.options.size!==null){for(var k=f.prevFirst;k<=f.prevLast;k++){if(k!==null&&!(k>=f.first&&k<=f.last)&&(k<1||k>f.options.size)){f.remove(k)}}}};this.notify("onBeforeAnimation");if(!this.options.animation||e===false){this.list.css(this.lt,i+"px");g()}else{var j=!this.options.vertical?(this.options.rtl?{right:i}:{left:i}):{top:i};var h={duration:this.options.animation,easing:this.options.easing,complete:g};if(c.isFunction(this.options.animationStepCallback)){h.step=this.options.animationStepCallback}this.list.animate(j,h)}},startAuto:function(f){if(f!==undefined){this.options.auto=f}if(this.options.auto===0){return this.stopAuto()}if(this.timer!==null){return}this.autoStopped=false;var e=this;this.timer=window.setTimeout(function(){e.next()},this.options.auto*1000)},stopAuto:function(){this.pauseAuto();this.autoStopped=true},pauseAuto:function(){if(this.timer===null){return}window.clearTimeout(this.timer);this.timer=null},buttons:function(g,f){if(g==null){g=!this.locked&&this.options.size!==0&&((this.options.wrap&&this.options.wrap!="first")||this.options.size===null||this.last<this.options.size);if(!this.locked&&(!this.options.wrap||this.options.wrap=="first")&&this.options.size!==null&&this.last>=this.options.size){g=this.tail!==null&&!this.inTail}}if(f==null){f=!this.locked&&this.options.size!==0&&((this.options.wrap&&this.options.wrap!="last")||this.first>1);if(!this.locked&&(!this.options.wrap||this.options.wrap=="last")&&this.options.size!==null&&this.first==1){f=this.tail!==null&&this.inTail}}var e=this;if(this.buttonNext.size()>0){this.buttonNext.unbind(this.options.buttonNextEvent+".jcarousel",this.funcNext);if(g){this.buttonNext.bind(this.options.buttonNextEvent+".jcarousel",this.funcNext)}this.buttonNext[g?"removeClass":"addClass"](this.className("jcarousel-next-disabled")).attr("disabled",g?false:true);if(this.options.buttonNextCallback!==null&&this.buttonNext.data("jcarouselstate")!=g){this.buttonNext.each(function(){e.options.buttonNextCallback(e,this,g)}).data("jcarouselstate",g)}}else{if(this.options.buttonNextCallback!==null&&this.buttonNextState!=g){this.options.buttonNextCallback(e,null,g)}}if(this.buttonPrev.size()>0){this.buttonPrev.unbind(this.options.buttonPrevEvent+".jcarousel",this.funcPrev);if(f){this.buttonPrev.bind(this.options.buttonPrevEvent+".jcarousel",this.funcPrev)}this.buttonPrev[f?"removeClass":"addClass"](this.className("jcarousel-prev-disabled")).attr("disabled",f?false:true);if(this.options.buttonPrevCallback!==null&&this.buttonPrev.data("jcarouselstate")!=f){this.buttonPrev.each(function(){e.options.buttonPrevCallback(e,this,f)}).data("jcarouselstate",f)}}else{if(this.options.buttonPrevCallback!==null&&this.buttonPrevState!=f){this.options.buttonPrevCallback(e,null,f)}}this.buttonNextState=g;this.buttonPrevState=f},notify:function(e){var f=this.prevFirst===null?"init":(this.prevFirst<this.first?"next":"prev");this.callback("itemLoadCallback",e,f);if(this.prevFirst!==this.first){this.callback("itemFirstInCallback",e,f,this.first);this.callback("itemFirstOutCallback",e,f,this.prevFirst)}if(this.prevLast!==this.last){this.callback("itemLastInCallback",e,f,this.last);this.callback("itemLastOutCallback",e,f,this.prevLast)}this.callback("itemVisibleInCallback",e,f,this.first,this.last,this.prevFirst,this.prevLast);this.callback("itemVisibleOutCallback",e,f,this.prevFirst,this.prevLast,this.first,this.last)},callback:function(j,m,e,k,h,g,f){if(this.options[j]==null||(typeof this.options[j]!="object"&&m!="onAfterAnimation")){return}var n=typeof this.options[j]=="object"?this.options[j][m]:this.options[j];if(!c.isFunction(n)){return}var o=this;if(k===undefined){n(o,e,m)}else{if(h===undefined){this.get(k).each(function(){n(o,this,k,e,m)})}else{var p=function(q){o.get(q).each(function(){n(o,this,q,e,m)})};for(var l=k;l<=h;l++){if(l!==null&&!(l>=g&&l<=f)){p(l)}}}}},create:function(e){return this.format("<li></li>",e)},format:function(k,h){k=c(k);var g=k.get(0).className.split(" ");for(var f=0;f<g.length;f++){if(g[f].indexOf("jcarousel-")!=-1){k.removeClass(g[f])}}k.addClass(this.className("jcarousel-item")).addClass(this.className("jcarousel-item-"+h)).css({"float":(this.options.rtl?"right":"left"),"list-style":"none"}).attr("jcarouselindex",h);return k},className:function(e){return e+" "+e+(!this.options.vertical?"-horizontal":"-vertical")},dimension:function(h,i){var g=c(h);if(i==null){return !this.options.vertical?((g.innerWidth()+a.intval(g.css("margin-left"))+a.intval(g.css("margin-right"))+a.intval(g.css("border-left-width"))+a.intval(g.css("border-right-width")))||a.intval(this.options.itemFallbackDimension)):((g.innerHeight()+a.intval(g.css("margin-top"))+a.intval(g.css("margin-bottom"))+a.intval(g.css("border-top-width"))+a.intval(g.css("border-bottom-width")))||a.intval(this.options.itemFallbackDimension))}else{var f=!this.options.vertical?i-a.intval(g.css("marginLeft"))-a.intval(g.css("marginRight")):i-a.intval(g.css("marginTop"))-a.intval(g.css("marginBottom"));c(g).css(this.wh,f+"px");return this.dimension(g)}},clipping:function(){return !this.options.vertical?this.clip[0].offsetWidth-a.intval(this.clip.css("borderLeftWidth"))-a.intval(this.clip.css("borderRightWidth")):this.clip[0].offsetHeight-a.intval(this.clip.css("borderTopWidth"))-a.intval(this.clip.css("borderBottomWidth"))},index:function(e,f){if(f==null){f=this.options.size}return Math.round((((e-1)/f)-Math.floor((e-1)/f))*f)+1}});a.extend({defaults:function(e){return c.extend(d,e||{})},intval:function(e){e=parseInt(e,10);return isNaN(e)?0:e},windowLoaded:function(){b=true},isSafari:function(){var g=navigator.userAgent.toLowerCase(),f=/(chrome)[ \/]([\w.]+)/.exec(g)||/(webkit)[ \/]([\w.]+)/.exec(g)||[],e=f[1]||"";return e==="webkit"}});c.fn.jcarousel=function(g){if(typeof g=="string"){var e=c(this).data("jcarousel"),f=Array.prototype.slice.call(arguments,1);return e[g].apply(e,f)}else{return this.each(function(){var h=c(this).data("jcarousel");if(h){if(g){c.extend(h.options,g)}h.reload()}else{c(this).data("jcarousel",new a(this,g))}})}}})(jQuery);
+;
+/**
+ * @file
+ * Add jCarousel behaviors to the page and provide Views-support.
+ */
+
+(function($) {
+
+Drupal.behaviors.jcarousel = {};
+Drupal.behaviors.jcarousel.attach = function(context, settings) {
+  settings = settings || Drupal.settings;
+
+  // If no carousels exist on this part of the page, work no further. 
+  if (!settings.jcarousel || !settings.jcarousel.carousels) {
+    return;
+  }
+
+  $("ul.jcarousel li").css("display", "");
+
+  $.each(settings.jcarousel.carousels, function(key, options) {
+    var $carousel = $(options.selector + ':not(.jcarousel-processed)', context);
+
+    // If this carousel has already been processed or doesn't exist, move on.
+    if (!$carousel.length) {
+      return;
+    }
+
+    // Callbacks need to be converted from a string to an actual function.
+    $.each(options, function(optionKey) {
+      if (optionKey.match(/Callback$/) && typeof options[optionKey] == 'string') {
+        var callbackFunction = window;
+        var callbackParents = options[optionKey].split('.');
+        $.each(callbackParents, function(objectParent) {
+          callbackFunction = callbackFunction[callbackParents[objectParent]];
+        });
+        options[optionKey] = callbackFunction;
+      }
+    });
+
+    // Add standard options required for AJAX functionality.
+    if (options.ajax && !options.itemLoadCallback) {
+      options.itemLoadCallback = Drupal.jcarousel.ajaxLoadCallback;
+    }
+
+    // If auto-scrolling, pause animation when hoving over the carousel.
+    if (options.auto && options.autoPause && !options.initCallback) {
+      options.initCallback = function(carousel, state) {
+        Drupal.jcarousel.autoPauseCallback(carousel, state);
+      };
+    }
+
+    // Add responsive behavior.
+    if (options.responsive  && !options.reloadCallback) {
+      options.vertical = false;
+      options.visible = null;
+      options.reloadCallback = Drupal.jcarousel.reloadCallback;
+    }
+
+    // Add navigation to the carousel if enabled.
+    if (!options.setupCallback) {
+      options.setupCallback = function(carousel) {
+        Drupal.jcarousel.setupCarousel(carousel);
+        if (options.navigation) {
+          Drupal.jcarousel.addNavigation(carousel, options.navigation);
+        }
+        if (options.responsive) {
+          carousel.reload();
+        }
+      };
+      if (options.navigation && !options.itemVisibleInCallback) {
+        options.itemLastInCallback = {
+          onAfterAnimation: Drupal.jcarousel.updateNavigationActive
+        };
+      }
+    }
+
+    if (!options.hasOwnProperty('buttonNextHTML') && !options.hasOwnProperty('buttonPrevHTML')) {
+      options.buttonNextHTML = Drupal.theme('jCarouselButton', 'next');
+      options.buttonPrevHTML = Drupal.theme('jCarouselButton', 'previous');
+    }
+
+    // Initialize the jcarousel.
+    $carousel.addClass('jcarousel-processed').jcarousel(options);
+  });
+};
+
+Drupal.jcarousel = {};
+Drupal.jcarousel.reloadCallback = function(carousel) {
+  // Set the clip and container to auto width so that they will fill
+  // the available space.
+  carousel.container.css('width', 'auto');
+  carousel.clip.css('width', 'auto');
+  var clipWidth = carousel.clip.width();
+  var containerExtra = carousel.container.width() - carousel.clip.outerWidth(true);
+  // Determine the width of an item.
+  var itemWidth = carousel.list.find('li').first().outerWidth(true);
+  var numItems = Math.floor(carousel.clip.width() / itemWidth) || 1;
+  // Set the new scroll number.
+  carousel.options.scroll = numItems;
+  var newClipWidth = numItems * itemWidth;
+  var newContainerWidth = newClipWidth + containerExtra;
+  // Resize the clip and container.
+  carousel.clip.width(newClipWidth);
+  carousel.container.width(newContainerWidth);
+};
+Drupal.jcarousel.ajaxLoadCallback = function(jcarousel, state) {
+  // Check if the requested items already exist.
+  if (state == 'init' || jcarousel.has(jcarousel.first, jcarousel.last)) {
+    return;
+  }
+
+  var $list = jcarousel.list;
+  var $view = $list.parents('.view:first');
+  var ajaxPath = Drupal.settings.jcarousel.ajaxPath;
+  var target = $view.get(0);
+
+  // Find this view's settings in the Views AJAX settings.
+  var settings;
+  $.each(Drupal.settings.jcarousel.carousels, function(domID, carouselSettings) {
+    if ($list.is('.' + domID)) {
+      settings = carouselSettings['view_options'];
+    }
+  });
+
+  // Copied from ajax_view.js:
+  var viewData = { 'js': 1, 'first': jcarousel.first - 1, 'last': jcarousel.last };
+  // Construct an object using the settings defaults and then overriding
+  // with data specific to the link.
+  $.extend(
+    viewData,
+    settings
+  );
+
+  $.ajax({
+    url: ajaxPath,
+    type: 'GET',
+    data: viewData,
+    success: function(response) {
+      Drupal.jcarousel.ajaxResponseCallback(jcarousel, target, response);
+    },
+    error: function(xhr) {
+      Drupal.jcarousel.ajaxErrorCallback(xhr, ajaxPath);
+    },
+    dataType: 'json'
+  });
+
+};
+
+/**
+ * Init callback for jCarousel. Pauses the carousel when hovering over.
+ */
+Drupal.jcarousel.autoPauseCallback = function(carousel, state) {
+  function pauseAuto() {
+    carousel.stopAuto();
+  }
+  function resumeAuto() {
+    carousel.startAuto();
+  }
+  carousel.clip.hover(pauseAuto, resumeAuto);
+  carousel.buttonNext.hover(pauseAuto, resumeAuto);
+  carousel.buttonPrev.hover(pauseAuto, resumeAuto);
+};
+
+/**
+ * Setup callback for jCarousel. Calculates number of pages.
+ */
+Drupal.jcarousel.setupCarousel = function(carousel) {
+  // Determine the number of pages this carousel includes.
+  // This only works for a positive starting point. Also, .first is 1-based
+  // while .last is a count, so we need to reset the .first number to be
+  // 0-based to make the math work.
+  carousel.pageSize = carousel.last - (carousel.first - 1);
+
+  // jCarousel's Views integration sets "size" in the carousel options. Use that
+  // if available, otherwise count the number of items in the carousel.
+  var itemCount = carousel.options.size ? carousel.options.size : $(carousel.list).children('li').length;
+  carousel.pageCount =  Math.ceil(itemCount / carousel.pageSize);
+  carousel.pageNumber = 1;
+
+  // Disable the previous/next arrows if there is only one page.
+  if (carousel.options.wrap != 'circular' && carousel.pageCount == 1) {
+    carousel.buttons(false, false);
+  }
+
+  // Always remove the hard-coded display: block from the navigation.
+  carousel.buttonNext.css('display', '');
+  carousel.buttonPrev.css('display', '');
+}
+
+/**
+ * Setup callback for jCarousel. Adds the navigation to the carousel if enabled.
+ */
+Drupal.jcarousel.addNavigation = function(carousel, position) {
+  // Don't add a pager if there's only one page of results.
+  if (carousel.pageCount <= 1) {
+    return;
+  }
+
+  // Add a class to the wrapper so it can adjust CSS.
+  $(carousel.list).parents('.jcarousel-container:first').addClass('jcarousel-navigation-' + position);
+
+  var navigation = $('<ul class="jcarousel-navigation"></ul>');
+
+  for (var i = 1; i <= carousel.pageCount; i++) {
+    var pagerItem = $(Drupal.theme('jCarouselPageLink', i));
+    var listItem = $('<li></li>').attr('jcarousel-page', i).append(pagerItem);
+    navigation.append(listItem);
+
+    // Make the first page active by default.
+    if (i === 1) {
+      listItem.addClass('active');
+    }
+
+    // Scroll to the correct page when a pager is clicked.
+    pagerItem.bind('click', function() {
+      // We scroll to the new page based on item offsets. This works with
+      // circular carousels that do not divide items evenly, making it so that
+      // going back or forward in pages will not skip or repeat any items.
+      var newPageNumber = $(this).parent().attr('jcarousel-page');
+      var itemOffset = (newPageNumber - carousel.pageNumber) * carousel.pageSize;
+
+      if (itemOffset) {
+        carousel.scroll(carousel.first + itemOffset);
+      }
+
+      return false;
+    });
+  }
+
+  $(carousel.list).parents('.jcarousel-clip:first')[position](navigation);
+}
+
+/**
+ * itemVisibleInCallback for jCarousel. Update the navigation after page change.
+ */
+Drupal.jcarousel.updateNavigationActive = function(carousel, item, idx, state) {
+  // The navigation doesn't even exist yet when this is called on init.
+  var $listItems = $(carousel.list).parents('.jcarousel-container:first').find('.jcarousel-navigation li');
+  if ($listItems.length == 0) {
+    return;
+  }
+
+  // jCarousel does some very odd things with circular wraps. Items before the
+  // first item are given negative numbers and items after the last are given
+  // numbers beyond the total number of items. This complicated logic calculates
+  // which page number is active based off this numbering scheme.
+  var pageNumber = Math.ceil(idx / carousel.pageSize);
+  if (pageNumber <= 0 || pageNumber > carousel.pageCount) {
+    pageNumber = pageNumber % carousel.pageCount;
+    pageNumber = pageNumber == 0 ? carousel.pageCount : pageNumber;
+    pageNumber = pageNumber < 0 ? pageNumber + carousel.pageCount : pageNumber;
+  }
+  carousel.pageNumber = pageNumber;
+  var currentPage = $listItems.get(carousel.pageNumber - 1);
+
+  // Set the current page to be active.
+  $listItems.not(currentPage).removeClass('active');
+  $(currentPage).addClass('active');
+}
+
+/**
+ * AJAX callback for all jCarousel-style views.
+ */
+Drupal.jcarousel.ajaxResponseCallback = function(jcarousel, target, response) {
+  if (response.debug) {
+    alert(response.debug);
+  }
+
+  var $view = $(target);
+  var jcarousel = $view.find('ul.jcarousel').data('jcarousel');
+
+  // Add items to the jCarousel.
+  $('ul.jcarousel > li', response.display).each(function(i) {
+    var itemNumber = this.className.replace(/.*?jcarousel-item-(\d+).*/, '$1');
+    jcarousel.add(itemNumber, this.innerHTML);
+  });
+
+  // Add Drupal behaviors to the content of the carousel to affect new items.
+  Drupal.attachBehaviors(jcarousel.list.get(0));
+
+  // Treat messages the same way that Views typically handles messages.
+  if (response.messages) {
+    // Show any messages (but first remove old ones, if there are any).
+    $view.find('.views-messages').remove().end().prepend(response.messages);
+  }
+};
+
+/**
+ * Display error messages using the same mechanism as Views module.
+ */
+Drupal.jcarousel.ajaxErrorCallback = function (xhr, path) {
+  var error_text = '';
+
+  if ((xhr.status == 500 && xhr.responseText) || xhr.status == 200) {
+    error_text = xhr.responseText;
+
+    // Replace all &lt; and &gt; by < and >
+    error_text = error_text.replace("/&(lt|gt);/g", function (m, p) {
+      return (p == "lt")? "<" : ">";
+    });
+
+    // Now, replace all html tags by empty spaces
+    error_text = error_text.replace(/<("[^"]*"|'[^']*'|[^'">])*>/gi,"");
+
+    // Fix end lines
+    error_text = error_text.replace(/[\n]+\s+/g,"\n");
+  }
+  else if (xhr.status == 500) {
+    error_text = xhr.status + ': ' + Drupal.t("Internal server error. Please see server or PHP logs for error information.");
+  }
+  else {
+    error_text = xhr.status + ': ' + xhr.statusText;
+  }
+
+  alert(Drupal.t("An error occurred at @path.\n\nError Description: @error", {'@path': path, '@error': error_text}));
+};
+
+Drupal.theme.prototype.jCarouselButton = function(type) {
+  // Use links for buttons for accessibility.
+  return '<a href="javascript:void(0)"></a>';
+};
+
+Drupal.theme.prototype.jCarouselPageLink = function(pageNumber) {
+  return '<a href="javascript:void(0)"><span>' + (pageNumber) + '</span></a>';
+};
+
+})(jQuery);
+;

@@ -21,6 +21,7 @@
 	//Child
 	$app->post('/child/register', 'registerChild');	
 	$app->get('/child', 'getAllChildren');
+	$app->get('/child/all', 'getAllChildrenEvenAdopted');
 	$app->get('/child/{id}', function ($request, $response, $args){
 		$id=(int)$args['id'];
 		return getChildById($id);
@@ -66,6 +67,19 @@
 	//Adoption
 	$app->post('/adopt', 'adopt');	
 	$app->get('/adoptions', 'getAllAdoptions');
+	$app->get('/adoptions/{id}', function($request, $response, $args){
+		//getAllMyAdoptions
+		$id=(int)$args['id'];
+		return getAllMyAdoptions($id);
+	});
+	
+	//getAdoptionByAdopter
+		$app->get('/adoptions/adopter/{id}', function($request, $response, $args){
+		//getAllMyAdoptions
+		$id=(int)$args['id'];
+		return getAdoptionByAdopter($id);
+	});
+	
 	$app->get('/adoption/{id}', function ($request, $response, $args){
 		$id=(int)$args['id'];
 		return getAdoptionById($id);

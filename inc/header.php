@@ -57,7 +57,9 @@
     <nav class="navbar navbar-default">
   <div class="container">
     <div class="navbar-header">
-      <a class="navbar-brand" href="./"><span style="color:#fff;"> Online Child Adoption System</span></a>
+      <a class="navbar-brand" href="./">
+	  <img style="height:100px; background:#fff; paddign:5px; float:left;" src="./img/logo.png" class="img img-responsive">
+	  <span style="color:#fff; float:left; padding-left:10px;"> Online Child Adoption System</span></a>
     </div>
     <ul class="pull-right nav navbar-nav">
       <li class="home-link"><a href="./"><i class="fa fa-home"> </i> &nbsp; Home</a></li>
@@ -74,7 +76,7 @@
 		   {
 		?> 
             <li data-toggle="modal" data-target="#profileModal" class="account-link">
-        <a href="#"><i class="fas fa-user-circle"></i> &nbsp; <?php echo $_SESSION['ocas-user_name']; ?></a></li>
+        <a class="active-account" data-id="<?php echo $_SESSION['ocas-user_id']; ?>" href="./account.php"><i class="fas fa-user-circle"></i> &nbsp; <?php echo $_SESSION['ocas-user_name']; ?></a></li>
         <?php
             }else{
         ?>
